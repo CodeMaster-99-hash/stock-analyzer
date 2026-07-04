@@ -1,0 +1,8 @@
+[run]
+omit =
+    venv/*
+    gui/*
+    tests/*
+    scripts/*
+    main.py
+    */__init__.py

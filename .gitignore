@@ -1,0 +1,35 @@
+# Virtual environment — never commit
+venv/
+
+# Secrets — never commit
+.env
+
+# Runtime generated files
+logs/
+exports/
+cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller build output
+dist/
+build/
+*.spec
+
+# ML model artifacts (large binary files)
+ml_artifacts/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database exports
+*.sql.bak

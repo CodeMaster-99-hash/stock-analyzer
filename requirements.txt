@@ -1,0 +1,41 @@
+# ── Core Data ──────────────────────────────────────────
+numpy==1.26.4
+pandas==2.2.2
+
+# ── Stock Data APIs ────────────────────────────────────
+yfinance==1.4.1
+requests==2.32.3
+
+# ── Database ───────────────────────────────────────────
+mysql-connector-python==8.3.0
+SQLAlchemy==2.0.30
+
+# ── GUI ────────────────────────────────────────────────
+PyQt6==6.7.0
+
+# ── Visualization ──────────────────────────────────────
+matplotlib==3.9.0
+seaborn==0.13.2
+mplfinance==0.12.10b0
+
+# ── Machine Learning ───────────────────────────────────
+scikit-learn==1.5.0
+xgboost==2.0.3
+
+# ── Natural Language Processing ────────────────────────
+textblob==0.18.0
+nltk==3.8.1
+
+# ── Environment & Config ───────────────────────────────
+python-dotenv==1.0.1
+
+# ── Utilities ──────────────────────────────────────────
+schedule==1.2.2
+
+# ── Testing ────────────────────────────────────────────
+pytest==8.2.2
+pytest-qt==4.4.0
+
+# ── Export / Reporting ─────────────────────────────────
+openpyxl==3.1.4
+reportlab==4.2.2
