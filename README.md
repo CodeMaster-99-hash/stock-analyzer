@@ -1,3 +1,12 @@
+## ⬇️ Download
+
+[![Download](https://img.shields.io/github/v/release/CodeMaster-99-hash/stock-analyzer?label=Download&style=for-the-badge)](https://github.com/CodeMaster-99-hash/stock-analyzer/releases/latest)
+
+**Windows 10/11 · No Python installation required**
+
+---
+
+
 \# 📈 Stock Market Analyzer
 
 
