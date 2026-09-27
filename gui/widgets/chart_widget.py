@@ -1,287 +1,652 @@
-"""
-gui/widgets/chart_widget.py
-============================
-Embeds Matplotlib charts inside the PyQt6 GUI.
-
-HOW MATPLOTLIB WORKS INSIDE PYQT6:
-    Normally Matplotlib shows charts in its own window.
-    To embed it in our GUI we use FigureCanvasQTAgg —
-    a special Qt widget that renders a Matplotlib Figure.
-    We treat it like any other QWidget.
-"""
-
 import logging
+
 import pandas as pd
 import matplotlib
-matplotlib.use('Qt5Agg')  # Must be set before importing pyplot
-import matplotlib.pyplot as plt
+
+matplotlib.use("QtAgg")
+
 import matplotlib.dates as mdates
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+import matplotlib.ticker as mticker
+
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
-from PyQt6.QtCore import Qt
+
 
 logger = logging.getLogger(__name__)
 
-# Dark theme colors matching our QSS
-DARK_BG     = '#0d1117'
-CARD_BG     = '#161b22'
-BORDER      = '#30363d'
-TEXT        = '#e6edf3'
-MUTED       = '#8b949e'
-BLUE        = '#1f6feb'
-GREEN       = '#3fb950'
-RED         = '#f85149'
-ORANGE      = '#e3b341'
-PURPLE      = '#bc8cff'
+
+# Theme
+DARK_BG = "#0d1117"
+CARD_BG = "#161b22"
+BORDER = "#30363d"
+TEXT = "#e6edf3"
+MUTED = "#8b949e"
+
+BLUE = "#1f6feb"
+GREEN = "#3fb950"
+RED = "#f85149"
+ORANGE = "#e3b341"
+PURPLE = "#bc8cff"
 
 
 class ChartWidget(QWidget):
-    """
-    Embeds a Matplotlib chart into the PyQt6 application.
-    Supports line charts, candlestick-style charts, and indicators.
-    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.df     = None
-        self.symbol = ""
-        self._setup_ui()
 
-    def _setup_ui(self):
+        self.df = None
+        self.symbol = ""
+        self.current_days = 365
+
+        self.setup_ui()
+
+    def setup_ui(self):
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        # Period selector buttons
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(6)
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(6)
 
         self.period_buttons = {}
-        for label, days in [('1M', 30), ('3M', 90),
-                             ('6M', 180), ('1Y', 365), ('2Y', 730)]:
-            btn = QPushButton(label)
-            btn.setFixedSize(50, 28)
-            btn.clicked.connect(lambda _, d=days: self._on_period_changed(d))
-            self.period_buttons[days] = btn
-            btn_layout.addWidget(btn)
 
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        periods = {
+            "1M": 30,
+            "3M": 90,
+            "6M": 180,
+            "1Y": 365,
+            "2Y": 730
+        }
 
-        # Matplotlib canvas
+        for label, days in periods.items():
+
+            button = QPushButton(label)
+            button.setFixedSize(52, 28)
+
+            button.setStyleSheet("""
+                QPushButton {
+                    background-color: #21262d;
+                    color: #8b949e;
+                    border: 1px solid #30363d;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+
+                QPushButton:hover {
+                    background-color: #30363d;
+                    color: #e6edf3;
+                }
+
+                QPushButton:pressed {
+                    background-color: #1f6feb;
+                    color: white;
+                    border-color: #1f6feb;
+                }
+            """)
+
+            button.clicked.connect(
+                lambda checked=False, d=days:
+                self.on_period_changed(d)
+            )
+
+            self.period_buttons[days] = button
+            button_layout.addWidget(button)
+
+        button_layout.addStretch()
+
+        layout.addLayout(button_layout)
+
         self.figure = Figure(
-            figsize     = (10, 6),
-            facecolor   = DARK_BG,
-            tight_layout= True,
+            figsize=(10, 6),
+            facecolor=DARK_BG
         )
+
         self.canvas = FigureCanvasQTAgg(self.figure)
+
         layout.addWidget(self.canvas)
 
-        self._current_days = 365
+    # ---------------------------------------------------------
+    # Period
+    # ---------------------------------------------------------
 
-    def _on_period_changed(self, days: int):
-        """Called when a period button is clicked."""
-        self._current_days = days
+    def on_period_changed(self, days):
+
+        self.current_days = days
+
         if self.df is not None:
-            self.plot_price_chart(self.df, self.symbol, days)
+            self.plot_price_chart(
+                self.df,
+                self.symbol,
+                days
+            )
 
-    def plot_price_chart(self, df: pd.DataFrame,
-                          symbol: str, period_days: int = 365):
-        """
-        Plots price history with moving averages and volume.
+    # ---------------------------------------------------------
+    # Price Chart
+    # ---------------------------------------------------------
 
-        LAYOUT:
-            Top panel    (70%): Price line + SMA20 + SMA50 + BB bands
-            Bottom panel (30%): Volume bars
-        """
+    def plot_price_chart(
+        self,
+        df: pd.DataFrame,
+        symbol: str,
+        period_days: int = 365
+    ):
+
         if df is None or df.empty:
-            self._show_no_data_message()
+            self.show_no_data()
             return
 
-        self.df     = df
+        self.df = df
         self.symbol = symbol
+        self.current_days = period_days
 
-        # Filter to requested period
         df_plot = df.tail(period_days).copy()
 
         self.figure.clear()
+        self.figure.patch.set_facecolor(DARK_BG)
 
-        # Create two subplots sharing the x-axis
-        ax1 = self.figure.add_subplot(211)  # Price chart (top)
-        ax2 = self.figure.add_subplot(212,  # Volume chart (bottom)
-                                       sharex=ax1)
+        grid = self.figure.add_gridspec(
+            2,
+            1,
+            height_ratios=[7, 3],
+            hspace=0.08
+        )
 
-        self._style_axis(ax1)
-        self._style_axis(ax2)
+        price_ax = self.figure.add_subplot(grid[0])
+        volume_ax = self.figure.add_subplot(
+            grid[1],
+            sharex=price_ax
+        )
+
+        self.style_axis(price_ax)
+        self.style_axis(volume_ax)
 
         dates = df_plot.index
 
-        # ── Price line ─────────────────────────────────────
-        ax1.plot(dates, df_plot['close'],
-                 color=BLUE, linewidth=1.5,
-                 label='Close', zorder=3)
+        # Close price
+        if "close" in df_plot.columns:
 
-        # ── Moving averages ─────────────────────────────────
-        if 'sma_20' in df_plot.columns:
-            ax1.plot(dates, df_plot['sma_20'],
-                     color=ORANGE, linewidth=1.0,
-                     linestyle='--', label='SMA 20', alpha=0.8)
-
-        if 'sma_50' in df_plot.columns:
-            ax1.plot(dates, df_plot['sma_50'],
-                     color=PURPLE, linewidth=1.0,
-                     linestyle='--', label='SMA 50', alpha=0.8)
-
-        # ── Bollinger Bands ─────────────────────────────────
-        if 'bb_upper' in df_plot.columns:
-            ax1.fill_between(
+            price_ax.plot(
                 dates,
-                df_plot['bb_upper'],
-                df_plot['bb_lower'],
-                alpha   = 0.08,
-                color   = BLUE,
-                label   = 'BB Bands'
+                df_plot["close"],
+                color=BLUE,
+                linewidth=2,
+                label="Close Price"
             )
-            ax1.plot(dates, df_plot['bb_upper'],
-                     color=BLUE, linewidth=0.5, alpha=0.4)
-            ax1.plot(dates, df_plot['bb_lower'],
-                     color=BLUE, linewidth=0.5, alpha=0.4)
 
-        ax1.set_title(
-            f'{symbol} — Price Chart',
-            color=TEXT, fontsize=14, pad=10
+        # SMA 20
+        if "sma_20" in df_plot.columns:
+
+            sma20 = df_plot["sma_20"].dropna()
+
+            if not sma20.empty:
+
+                price_ax.plot(
+                    sma20.index,
+                    sma20,
+                    color=ORANGE,
+                    linewidth=1.3,
+                    linestyle="--",
+                    label="SMA 20"
+                )
+
+        # SMA 50
+        if "sma_50" in df_plot.columns:
+
+            sma50 = df_plot["sma_50"].dropna()
+
+            if not sma50.empty:
+
+                price_ax.plot(
+                    sma50.index,
+                    sma50,
+                    color=PURPLE,
+                    linewidth=1.3,
+                    linestyle="--",
+                    label="SMA 50"
+                )
+
+        # Bollinger Bands
+        if (
+            "bb_upper" in df_plot.columns
+            and "bb_lower" in df_plot.columns
+        ):
+
+            upper = df_plot["bb_upper"].dropna()
+            lower = df_plot["bb_lower"].dropna()
+
+            common_index = upper.index.intersection(
+                lower.index
+            )
+
+            if not common_index.empty:
+
+                price_ax.fill_between(
+                    common_index,
+                    upper.loc[common_index],
+                    lower.loc[common_index],
+                    color=BLUE,
+                    alpha=0.08
+                )
+
+                price_ax.plot(
+                    common_index,
+                    upper.loc[common_index],
+                    color=BLUE,
+                    linewidth=0.6,
+                    alpha=0.5
+                )
+
+                price_ax.plot(
+                    common_index,
+                    lower.loc[common_index],
+                    color=BLUE,
+                    linewidth=0.6,
+                    alpha=0.5
+                )
+
+        # Price formatting
+        price_ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(
+                lambda value, _: f"${value:,.2f}"
+            )
         )
-        ax1.set_ylabel('Price (USD)', color=MUTED, fontsize=10)
-        ax1.legend(
-            loc='upper left', fontsize=9,
-            facecolor=CARD_BG, edgecolor=BORDER,
+
+        if "close" in df_plot.columns:
+
+            minimum = float(df_plot["close"].min())
+            maximum = float(df_plot["close"].max())
+
+            if maximum > minimum:
+
+                padding = (maximum - minimum) * 0.05
+
+                price_ax.set_ylim(
+                    minimum - padding,
+                    maximum + padding
+                )
+
+        price_ax.set_title(
+            f"{symbol} - Price Chart",
+            color=TEXT,
+            fontsize=13,
+            fontweight="bold"
+        )
+
+        price_ax.set_ylabel(
+            "Price (USD)",
+            color=MUTED
+        )
+
+        price_ax.legend(
+            loc="upper left",
+            fontsize=9,
+            facecolor=CARD_BG,
+            edgecolor=BORDER,
             labelcolor=TEXT
         )
 
-        # ── Volume bars ─────────────────────────────────────
-        colors = [
-            GREEN if df_plot['close'].iloc[i] >= df_plot['close'].iloc[i-1]
-            else RED
-            for i in range(len(df_plot))
-        ]
-        ax2.bar(dates, df_plot['volume'],
-                color=colors, alpha=0.7, width=0.8)
-        ax2.set_ylabel('Volume', color=MUTED, fontsize=10)
-
-        # ── Date formatting ─────────────────────────────────
-        ax2.xaxis.set_major_formatter(
-            mdates.DateFormatter('%b %Y')
+        price_ax.tick_params(
+            labelbottom=False
         )
-        ax2.xaxis.set_major_locator(
-            mdates.MonthLocator(interval=2)
-        )
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=30, ha='right')
 
-        self.figure.tight_layout(pad=2.0)
+        # Volume
+        if "volume" in df_plot.columns:
+
+            close_values = df_plot["close"].values
+
+            volume_colors = []
+
+            for index in range(len(df_plot)):
+
+                if index == 0:
+                    volume_colors.append(GREEN)
+
+                elif close_values[index] >= close_values[index - 1]:
+                    volume_colors.append(GREEN)
+
+                else:
+                    volume_colors.append(RED)
+
+            volume_ax.bar(
+                dates,
+                df_plot["volume"],
+                color=volume_colors,
+                alpha=0.75,
+                width=0.8
+            )
+
+        volume_ax.set_ylabel(
+            "Volume",
+            color=MUTED
+        )
+
+        volume_ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(self.format_volume)
+        )
+
+        self.format_dates(
+            volume_ax,
+            len(df_plot)
+        )
+
+        self.figure.tight_layout(pad=2)
+
         self.canvas.draw()
 
-    def plot_rsi_chart(self, df: pd.DataFrame, symbol: str):
-        """Plots RSI indicator with overbought/oversold lines."""
-        if df is None or df.empty or 'rsi_14' not in df.columns:
-            self._show_no_data_message()
+    # ---------------------------------------------------------
+    # RSI
+    # ---------------------------------------------------------
+
+    def plot_rsi_chart(
+        self,
+        df: pd.DataFrame,
+        symbol: str
+    ):
+
+        if (
+            df is None
+            or df.empty
+            or "rsi_14" not in df.columns
+        ):
+            self.show_no_data()
             return
 
         df_plot = df.tail(365).copy()
+
         self.figure.clear()
+        self.figure.patch.set_facecolor(DARK_BG)
+
         ax = self.figure.add_subplot(111)
-        self._style_axis(ax)
 
-        dates = df_plot.index
+        self.style_axis(ax)
 
-        ax.plot(dates, df_plot['rsi_14'],
-                color=PURPLE, linewidth=1.5, label='RSI 14')
+        rsi = df_plot["rsi_14"].dropna()
 
-        # Overbought/oversold reference lines
-        ax.axhline(y=70, color=RED,   linewidth=1.0,
-                   linestyle='--', alpha=0.7, label='Overbought (70)')
-        ax.axhline(y=30, color=GREEN, linewidth=1.0,
-                   linestyle='--', alpha=0.7, label='Oversold (30)')
-        ax.axhline(y=50, color=MUTED, linewidth=0.5,
-                   linestyle=':', alpha=0.5)
+        ax.plot(
+            rsi.index,
+            rsi,
+            color=PURPLE,
+            linewidth=1.8,
+            label="RSI (14)"
+        )
 
-        # Shade overbought and oversold zones
-        ax.fill_between(dates, 70, 100,
-                        alpha=0.05, color=RED)
-        ax.fill_between(dates, 0, 30,
-                        alpha=0.05, color=GREEN)
+        ax.axhline(
+            70,
+            color=RED,
+            linewidth=1.2,
+            linestyle="--",
+            label="Overbought (70)"
+        )
+
+        ax.axhline(
+            50,
+            color=MUTED,
+            linewidth=0.8,
+            linestyle=":"
+        )
+
+        ax.axhline(
+            30,
+            color=GREEN,
+            linewidth=1.2,
+            linestyle="--",
+            label="Oversold (30)"
+        )
+
+        ax.fill_between(
+            df_plot.index,
+            70,
+            100,
+            color=RED,
+            alpha=0.06
+        )
+
+        ax.fill_between(
+            df_plot.index,
+            0,
+            30,
+            color=GREEN,
+            alpha=0.06
+        )
 
         ax.set_ylim(0, 100)
-        ax.set_title(f'{symbol} — RSI (14)',
-                     color=TEXT, fontsize=14)
-        ax.set_ylabel('RSI', color=MUTED, fontsize=10)
-        ax.legend(facecolor=CARD_BG, edgecolor=BORDER,
-                  labelcolor=TEXT, fontsize=9)
 
-        self.figure.tight_layout(pad=2.0)
+        ax.set_yticks(
+            [0, 20, 30, 50, 70, 80, 100]
+        )
+
+        ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(
+                lambda value, _: f"{value:.0f}"
+            )
+        )
+
+        self.format_dates(ax, len(df_plot))
+
+        ax.set_title(
+            f"{symbol} - RSI (14)",
+            color=TEXT,
+            fontsize=13,
+            fontweight="bold"
+        )
+
+        ax.set_ylabel(
+            "RSI Value",
+            color=MUTED
+        )
+
+        ax.legend(
+            facecolor=CARD_BG,
+            edgecolor=BORDER,
+            labelcolor=TEXT,
+            fontsize=9
+        )
+
+        self.figure.tight_layout(pad=2)
+
         self.canvas.draw()
 
-    def plot_macd_chart(self, df: pd.DataFrame, symbol: str):
-        """Plots MACD line, signal line, and histogram."""
-        if df is None or df.empty or 'macd' not in df.columns:
-            self._show_no_data_message()
+    # ---------------------------------------------------------
+    # MACD
+    # ---------------------------------------------------------
+
+    def plot_macd_chart(
+        self,
+        df: pd.DataFrame,
+        symbol: str
+    ):
+
+        if (
+            df is None
+            or df.empty
+            or "macd" not in df.columns
+        ):
+            self.show_no_data()
             return
 
         df_plot = df.tail(365).copy()
+
         self.figure.clear()
+        self.figure.patch.set_facecolor(DARK_BG)
+
         ax = self.figure.add_subplot(111)
-        self._style_axis(ax)
+
+        self.style_axis(ax)
 
         dates = df_plot.index
 
-        ax.plot(dates, df_plot['macd'],
-                color=BLUE, linewidth=1.5, label='MACD')
-        ax.plot(dates, df_plot['macd_signal'],
-                color=ORANGE, linewidth=1.0, label='Signal')
+        ax.plot(
+            dates,
+            df_plot["macd"],
+            color=BLUE,
+            linewidth=1.8,
+            label="MACD"
+        )
 
-        # Histogram — green when MACD > signal, red otherwise
-        hist = df_plot['macd_hist']
-        ax.bar(dates, hist,
-               color=[GREEN if v >= 0 else RED for v in hist],
-               alpha=0.5, width=0.8, label='Histogram')
+        if "macd_signal" in df_plot.columns:
 
-        ax.axhline(y=0, color=MUTED, linewidth=0.5, linestyle='-')
+            ax.plot(
+                dates,
+                df_plot["macd_signal"],
+                color=ORANGE,
+                linewidth=1.2,
+                label="Signal"
+            )
 
-        ax.set_title(f'{symbol} — MACD',
-                     color=TEXT, fontsize=14)
-        ax.set_ylabel('MACD', color=MUTED, fontsize=10)
-        ax.legend(facecolor=CARD_BG, edgecolor=BORDER,
-                  labelcolor=TEXT, fontsize=9)
+        if "macd_hist" in df_plot.columns:
 
-        self.figure.tight_layout(pad=2.0)
+            histogram = df_plot["macd_hist"]
+
+            histogram_colors = [
+                GREEN if value >= 0 else RED
+                for value in histogram
+            ]
+
+            ax.bar(
+                dates,
+                histogram,
+                color=histogram_colors,
+                alpha=0.55,
+                width=0.8,
+                label="Histogram"
+            )
+
+        ax.axhline(
+            0,
+            color=MUTED,
+            linewidth=0.8,
+            alpha=0.5
+        )
+
+        ax.yaxis.set_major_formatter(
+            mticker.FuncFormatter(
+                lambda value, _: f"{value:.3f}"
+            )
+        )
+
+        self.format_dates(ax, len(df_plot))
+
+        ax.set_title(
+            f"{symbol} - MACD (12, 26, 9)",
+            color=TEXT,
+            fontsize=13,
+            fontweight="bold"
+        )
+
+        ax.set_ylabel(
+            "MACD Value",
+            color=MUTED
+        )
+
+        ax.legend(
+            facecolor=CARD_BG,
+            edgecolor=BORDER,
+            labelcolor=TEXT,
+            fontsize=9
+        )
+
+        self.figure.tight_layout(pad=2)
+
         self.canvas.draw()
 
-    def _style_axis(self, ax):
-        """Applies dark theme styling to a Matplotlib axis."""
-        ax.set_facecolor(CARD_BG)
-        ax.tick_params(colors=MUTED, labelsize=9)
-        ax.spines['bottom'].set_color(BORDER)
-        ax.spines['top'].set_color(BORDER)
-        ax.spines['left'].set_color(BORDER)
-        ax.spines['right'].set_color(BORDER)
-        ax.yaxis.label.set_color(MUTED)
-        ax.xaxis.label.set_color(MUTED)
-        ax.grid(True, color=BORDER, linewidth=0.5,
-                linestyle='--', alpha=0.5)
+    # ---------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------
 
-    def _show_no_data_message(self):
-        """Shows a placeholder when no data is available."""
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        ax.set_facecolor(DARK_BG)
-        ax.text(
-            0.5, 0.5,
-            'No data available\nFetch stock data first',
-            transform            = ax.transAxes,
-            ha                   = 'center',
-            va                   = 'center',
-            color                = MUTED,
-            fontsize             = 14,
+    @staticmethod
+    def format_volume(value, _):
+
+        if value >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.1f}B"
+
+        if value >= 1_000_000:
+            return f"{value / 1_000_000:.1f}M"
+
+        if value >= 1_000:
+            return f"{value / 1_000:.0f}K"
+
+        return str(int(value))
+
+    @staticmethod
+    def format_dates(ax, number_of_days):
+
+        if number_of_days <= 35:
+
+            ax.xaxis.set_major_locator(
+                mdates.WeekdayLocator(interval=1)
+            )
+
+        elif number_of_days <= 90:
+
+            ax.xaxis.set_major_locator(
+                mdates.MonthLocator()
+            )
+
+        else:
+
+            ax.xaxis.set_major_locator(
+                mdates.MonthLocator(interval=2)
+            )
+
+        ax.xaxis.set_major_formatter(
+            mdates.DateFormatter("%b %Y")
         )
-        ax.axis('off')
+
+        for label in ax.get_xticklabels():
+
+            label.set_rotation(30)
+            label.set_horizontalalignment("right")
+            label.set_fontsize(8)
+
+    @staticmethod
+    def style_axis(ax):
+
+        ax.set_facecolor(CARD_BG)
+
+        ax.tick_params(
+            colors=MUTED,
+            labelsize=9
+        )
+
+        for spine in ax.spines.values():
+            spine.set_color(BORDER)
+
+        ax.xaxis.label.set_color(MUTED)
+        ax.yaxis.label.set_color(MUTED)
+
+        ax.grid(
+            True,
+            color=BORDER,
+            linewidth=0.5,
+            linestyle="--",
+            alpha=0.4
+        )
+
+    def show_no_data(self):
+
+        self.figure.clear()
+        self.figure.patch.set_facecolor(DARK_BG)
+
+        ax = self.figure.add_subplot(111)
+
+        ax.set_facecolor(DARK_BG)
+
+        ax.text(
+            0.5,
+            0.5,
+            "No data available\n"
+            "Search for a stock to view its chart",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            color=MUTED,
+            fontsize=13
+        )
+
+        ax.axis("off")
+
         self.canvas.draw()
